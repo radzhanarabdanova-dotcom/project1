@@ -1,0 +1,114 @@
+---
+title: "Project 1"
+author: "Radzhana Rabdanova and Chingiz Rabdanov"
+format: html
+editor: visual
+output: html_document
+---
+
+
+# --- Project 1: Chess Tournament Data Transformation ---
+# Author: Radzhana Rabdanova and Chingiz Randanov
+
+library(tidyverse)
+library(stringr)
+library(DT) # For interactive tables
+
+# 1. Loading
+# Update the path to your local file location
+path <- "C:/Users/radzh/OneDrive/Desktop/data 607/project1/tournamentinfo.txt"
+raw_data <- readLines(path)
+
+# 2. Cleaning: removing lines that contain no letters or numbers (including dashes)
+# This ensures we only work with actual text data
+clean_data <- raw_data[str_detect(raw_data, "[A-Za-z0-9]")]
+
+# 3. Finding where the first player starts
+# In chess tables, this is usually a line starting with "1"
+start_index <- grep("^\\s*1\\s*\\|", clean_data)[1] 
+if(is.na(start_index)) start_index <- 3
+
+# If not found, skip headers
+clean_data <- clean_data[start_index:length(clean_data)]
+
+player_list <- list()
+
+# 4. Parsing loop
+for (i in seq(1, length(clean_data), by = 2)) { 
+  if ((i + 1) > length(clean_data)) break
+
+  line1 <- str_split(clean_data[i], "\\|")[[1]] 
+  line2 <- str_split(clean_data[i+1], "\\|")[[1]]
+
+  # Check for minimum number of columns
+  if (length(line1) < 3) next
+
+  id <- as.numeric(str_trim(line1[1])) 
+  if (is.na(id)) next
+
+  # Extracting fields according to the assignment
+  name <- str_trim(line1[2]) 
+  state <- str_trim(line2[1]) 
+  total_pts <- as.numeric(str_trim(line1[3]))
+
+  # Finding Pre-Rating (numbers after 'R:')
+  pre_rating <- as.numeric(str_extract(line2[2], "(?<=R: )\\s*\\d{3,4}"))
+
+  # Finding Opponent IDs using a refined regex to capture IDs after W, L, or D
+  opp_id_raw <- str_extract_all(clean_data[i], "\\|\\s*[WLD]\\s+(\\d+)")
+  opponents <- as.numeric(str_extract(opp_id_raw[[1]], "\\d+"))
+
+  player_list[[id]] <- list( 
+    Name = name, 
+    State = state, 
+    TotalPoints = total_pts, 
+    PreRating = pre_rating, 
+    Opponents = opponents 
+  ) 
+}
+
+# 5. Building the table and calculating the average
+final_results <- map_df(player_list, function(p) { 
+  if (is.null(p)) return(NULL)
+
+  # Getting opponent ratings
+  opp_ratings <- sapply(p$Opponents, function(oid) {      
+    if (!is.na(oid) && oid <= length(player_list) && !is.null(player_list[[oid]])) {       
+      player_list[[oid]]$PreRating 
+    } else { 
+      NA 
+    } 
+  })
+
+  avg_rating <- round(mean(opp_ratings, na.rm = TRUE), 0)
+
+  data.frame( 
+    Player_Name = p$Name,      
+    State = p$State, 
+    Total_Points = p$TotalPoints,      
+    Pre_Rating = p$PreRating, 
+    Avg_Opponent_Rating = avg_rating, 
+    stringsAsFactors = FALSE 
+  ) 
+})
+
+# 6. Interactive Visualization
+# Using DT library to create a searchable table for the final report
+datatable(final_results, 
+          caption = "Chess Tournament Results: Player Performance Overview",
+          options = list(pageLength = 10, searchHighlight = TRUE),
+          filter = 'top')
+
+# 7. Histogram
+library(ggplot2)
+
+ggplot(final_results, aes(x = Avg_Opponent_Rating)) +
+  geom_histogram(binwidth = 50, fill = "skyblue", color = "black", alpha = 0.7) +
+  geom_vline(aes(xintercept = mean(Avg_Opponent_Rating, na.rm = TRUE)), 
+             color = "red", linetype = "dashed", size = 1) +
+  labs(title = "Distribution of Average Opponent Ratings",
+       subtitle = "The red line indicates the tournament mean",
+       x = "Average Opponent Rating",
+       y = "Number of Players") +
+  theme_minimal()
+          
