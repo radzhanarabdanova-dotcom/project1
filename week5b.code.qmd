@@ -1,0 +1,22 @@
+---
+title: "week5b"
+author: "Radzhana Rabdanova"
+format: html
+editor: visual
+---
+
+#Load library
+
+#1.Read_csv.
+
+chess_ELO \<- read_csv(
+
+```         
+chess_ELO <- read_csv("C:\\Users\\radzh\\OneDrive\\Desktop\\data 607\\project1\\viewer_datatable.html")
+```
+
+```         
+head(chess_ELO)
+```
+
+#Source: FIDE Handbook, Section B.02 (Official Rating System).<https://handbook.fide.com/chapter/B022017>
