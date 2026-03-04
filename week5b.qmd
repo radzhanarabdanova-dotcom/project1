@@ -1,0 +1,153 @@
+---
+title: "Project 1"
+author: "Radzhana Rabdanova and Chingiz Rabdanov"
+format: html
+editor: visual
+output: html_document
+---
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# --- Project 1: Chess Tournament Data Transformation ---
+
+# Author: Radzhana Rabdanova and Chingiz Randanov
+library(tidyverse) 
+library(stringr) 
+library(DT) # For interactive tables
+library(ggplot2)
+
+# 1. Loading
+# Update the path to your local file location
+path <- "C:/Users/radzh/OneDrive/Desktop/data 607/project1/tournamentinfo.txt" 
+raw_data <- readLines(path)
+
+# 2. Cleaning: removing lines that contain no letters or numbers
+clean_data <- raw_data[str_detect(raw_data, "[A-Za-z0-9]")]
+
+# 3. Finding where the first player starts
+start_index <- grep("^\\s*1\\s*\\|", clean_data)[1] 
+if(is.na(start_index)) start_index <- 3
+
+# Skip headers
+clean_data <- clean_data[start_index:length(clean_data)]
+
+player_list <- list()
+
+# 4. Parsing loop
+for (i in seq(1, length(clean_data), by = 2)) { 
+  if ((i + 1) > length(clean_data)) break
+  
+  line1 <- str_split(clean_data[i], "\\|")[[1]] 
+  line2 <- str_split(clean_data[i+1], "\\|")[[1]]
+  
+  if (length(line1) < 3) next
+  
+  id <- as.numeric(str_trim(line1[1])) 
+  if (is.na(id)) next
+  
+  # Extracting fields
+  name <- str_trim(line1[2]) 
+  state <- str_trim(line2[1]) 
+  total_pts <- as.numeric(str_trim(line1[3]))
+  
+  # Finding Pre-Rating (numbers after 'R:') 
+  pre_rating <- as.numeric(str_extract(line2[2], "(?<=R: )\\s*\\d{3,4}"))
+  
+  # Finding Opponent IDs
+  opp_id_raw <- str_extract_all(clean_data[i], "\\|\\s*[WLD]\\s+(\\d+)") 
+  opponents <- as.numeric(str_extract(opp_id_raw[[1]], "\\d+"))
+  
+  player_list[[id]] <- list(
+    Name = name, 
+    State = state, 
+    TotalPoints = total_pts, 
+    PreRating = pre_rating, 
+    Opponents = opponents
+  ) 
+}
+
+# 5. Building the table and calculating the average
+final_results <- map_df(player_list, function(p) { 
+  if (is.null(p)) return(NULL)
+  
+  # Getting opponent ratings 
+  opp_ratings <- sapply(p$Opponents, function(oid) {
+    if (!is.na(oid) && oid <= length(player_list) && !is.null(player_list[[oid]])) {
+      player_list[[oid]]$PreRating 
+    } else { 
+      NA 
+    } 
+  })
+  
+  avg_rating <- round(mean(opp_ratings, na.rm = TRUE), 0)
+  
+  data.frame(
+    Player_Name = p$Name,
+    State = p$State, 
+    Total_Points = p$TotalPoints,
+    Pre_Rating = p$PreRating, 
+    Avg_Opponent_Rating = avg_rating, 
+    stringsAsFactors = FALSE
+  ) 
+})
+
+# 6. Interactive Visualization
+datatable(final_results, 
+          caption = "Chess Tournament Results: Player Performance Overview", 
+          options = list(pageLength = 10, searchHighlight = TRUE), 
+          filter = 'top')
+
+# 7. Histogram
+ggplot(final_results, aes(x = Avg_Opponent_Rating)) + 
+  geom_histogram(binwidth = 50, fill = "skyblue", color = "black", alpha = 0.7) + 
+  geom_vline(aes(xintercept = mean(Avg_Opponent_Rating, na.rm = TRUE)), 
+             color = "red", linetype = "dashed", size = 1) + 
+  labs(title = "Distribution of Average Opponent Ratings", 
+       subtitle = "The red line indicates the tournament mean", 
+       x = "Average Opponent Rating", 
+       y = "Number of Players") + 
+  theme_minimal()
+  
+# --- Calculation based on FIDE Handbook, Section B.02 ---
+# Source: https://handbook.fide.com/chapter/B022017
+
+# 1. Function to calculate the Expected Score for a single match
+# This formula determines the probability of winning based on the rating gap
+calc_expected <- function(player_rtg, opp_rtg) {
+  return(1 / (1 + 10^((opp_rtg - player_rtg) / 400)))
+}
+
+# 2. Add Elo calculations to the results table
+final_results_elo <- map_df(player_list, function(p) {
+  if (is.null(p)) return(NULL)
+
+ # Retrieve pre-ratings of actual opponents from the player list
+  opp_ratings <- sapply(p$Opponents, function(oid) {
+    if (!is.na(oid) && oid <= length(player_list)) player_list[[oid]]$PreRating else NA
+  })
+  
+  # Calculate cumulative expected points for all rounds played
+  # Unplayed rounds (NA) are treated as 0 contribution to the expected score
+  expected_scores <- sapply(opp_ratings, function(oa) {
+    if (is.na(oa)) return(0)
+    calc_expected(p$PreRating, oa)
+  })
+  
+  total_expected <- round(sum(expected_scores, na.rm = TRUE), 2)
+
+  data.frame(
+    Player_Name = p$Name,
+    Actual_Points = p$TotalPoints,
+    Expected_Points = total_expected,
+    Diff = round(p$TotalPoints - total_expected, 2),
+    stringsAsFactors = FALSE
+  )
+})
+
+# 3. Identify Top 5 Over-performers (Exceeded expectations)
+top_5_over <- final_results_elo %>% arrange(desc(Diff)) %>% head(5)
+head(top_5_over)
+# 4. Identify Top 5 Under-performers (Performed below expectations)
+top_5_under <- final_results_elo %>% arrange(Diff) %>% head(5)
+head(top_5_under)
+```
